@@ -362,3 +362,29 @@ def test_dispatcher_retries_then_fails(env):
         d.process()
     assert e.db.one("SELECT status FROM outbox WHERE channel='webhook'")["status"] == "failed"
     assert any(r["action"] == "delivery.webhook_failed" for r in e.core.audit.list())
+
+
+def test_login_throttled(env):
+    for _ in range(9):
+        with pytest.raises(AuthError):
+            env.core.login("owner@example.com", "wrong password here")
+    with pytest.raises(RateLimited):
+        env.core.login("owner@example.com", "correct horse battery staple")
+
+
+def test_out_of_grant_response_is_held_until_owner_releases(env):
+    e = env
+    e.core.update_room(e.owner, e.room["id"], telegram_chat_id="-100")
+    t = submit(e, info_category="schedule")             # outside both grants
+    e.core.decide_approval(e.owner, e.core.approvals_for_owner(e.owner)[0]["id"], True)
+    e.core.read_inbox(e.p_claude)
+    r = e.core.respond(e.p_claude, t["id"], "Rafael is free Tuesday at noon.")
+    assert r["held_for_approval"] and r["task"]["state"] == "awaiting_human_input"
+    assert e.core.read_inbox(e.p_gpt)["items"] == []    # not delivered
+    tg = e.db.all("SELECT * FROM deliveries WHERE message_id=? AND channel='telegram'", (r["message_id"],))
+    assert tg == []                                      # not mirrored before release
+    a = [x for x in e.core.approvals_for_owner(e.owner) if x["kind"] == "release_message"][0]
+    e.core.decide_approval(e.owner, a["id"], True)
+    got = e.core.read_inbox(e.p_gpt)["items"]
+    assert got and got[0]["content"].startswith("Rafael is free")
+    assert e.core._task_row(t["id"])["state"] == "result_ready"

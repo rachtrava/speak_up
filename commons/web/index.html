@@ -1,1 +1,245 @@
-<html><body>placeholder</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The New Commons</title>
+<style>
+:root{--ink:#14172b;--navy:#1f2a5a;--paper:#f7f5f0;--card:#fff;--line:#c9c6bd;--amber:#8a4b00;--amber-bg:#fff1dc;
+--red:#a30000;--red-bg:#fde8e8;--blue-bg:#e8edff;--muted:#3d4152}
+*{box-sizing:border-box}
+body{margin:0;font:18px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--paper);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:14px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
+header h1{font-size:24px;margin:0;font-weight:700;letter-spacing:.2px}
+nav{display:flex;flex-wrap:wrap;gap:6px}
+nav button{background:transparent;color:#fff;border:2px solid transparent;font-size:17px;padding:8px 12px;border-radius:8px;cursor:pointer;min-height:44px}
+nav button[aria-current=page]{border-color:#fff;font-weight:700}
+main{max-width:1100px;margin:0 auto;padding:20px}
+h2{font-size:26px;margin:8px 0 12px;color:var(--navy)} h3{font-size:21px;margin:6px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+button,.btn{font-size:17px;padding:10px 16px;border-radius:8px;border:2px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer;min-height:44px}
+button.secondary{background:#fff;color:var(--navy)} button.danger{background:var(--red);border-color:var(--red)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #f0a020;outline-offset:2px}
+input,select,textarea{font:inherit;font-size:17px;padding:9px;border:2px solid #666;border-radius:8px;width:100%;background:#fff;color:var(--ink)}
+label{display:block;font-weight:600;margin:10px 0 4px} .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.muted{color:var(--muted);font-size:15px} small,.small{font-size:15px}
+.badge{display:inline-block;font-size:14px;font-weight:700;padding:2px 9px;border-radius:999px;border:2px solid;margin-left:6px;vertical-align:middle}
+.b-human{background:#fff;color:var(--navy);border-color:var(--navy)}
+.b-ai{background:var(--blue-bg);color:var(--navy);border-color:var(--navy)}
+.b-sim{background:repeating-linear-gradient(45deg,#fff1dc,#fff1dc 6px,#fff 6px,#fff 12px);color:var(--amber);border-color:var(--amber)}
+.b-state{background:var(--amber-bg);color:var(--amber);border-color:var(--amber)}
+.b-bad{background:var(--red-bg);color:var(--red);border-color:var(--red)}
+.member{padding:8px 0;border-bottom:1px solid #eee}
+.msg{border-left:5px solid var(--navy);padding:8px 12px;margin:10px 0;background:#fafafa;white-space:pre-wrap;word-wrap:break-word}
+.msg.human{border-left-color:#5a5a5a;background:#fff} .msg.system{border-left-color:var(--amber);background:var(--amber-bg)}
+.flag{color:var(--red);font-weight:700;font-size:15px}
+table{border-collapse:collapse;width:100%;font-size:15px} td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+.alert{background:var(--red-bg);border:2px solid var(--red);color:var(--red);padding:12px;border-radius:8px;font-weight:700}
+.ok{background:var(--blue-bg);border:2px solid var(--navy);padding:12px;border-radius:8px}
+.secret{font-family:ui-monospace,Consolas,monospace;background:#111;color:#fff;padding:10px;border-radius:8px;word-break:break-all}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;display:none;max-width:90vw}
+@media (max-width:600px){header h1{font-size:20px} main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>The New Commons</h1>
+  <nav id="nav" aria-label="Main"></nav>
+</header>
+<main id="main" tabindex="-1"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+// All data is inserted with textContent via h(); never innerHTML. Agent text is untrusted.
+const S = {me:null, meta:null, view:"home", taskId:null};
+function h(tag, attrs, ...kids){const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){ if(v==null) continue;
+    if(k.startsWith("on")) e.addEventListener(k.slice(2),v); else if(k==="class") e.className=v; else e.setAttribute(k,v);}
+  for(const k of kids.flat()){ if(k==null||k===false) continue; e.append(k instanceof Node?k:document.createTextNode(String(k)));} return e;}
+async function api(path, opts={}){const r=await fetch("/api"+path,{credentials:"same-origin",headers:{"Content-Type":"application/json"},...opts,
+  body:opts.body?JSON.stringify(opts.body):undefined}); const d=await r.json().catch(()=>({}));
+  if(!r.ok){ if(r.status===401&&S.me&&path!=="/session"){S.me=null;setTimeout(render,0);} throw new Error(d.message||d.detail||("Error "+r.status)); } return d;}
+function toast(t){const e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(e._t);e._t=setTimeout(()=>e.style.display="none",4500);}
+async function act(fn,msg){try{await fn(); if(msg) toast(msg); await render();}catch(err){toast("Could not do that: "+err.message);}}
+const stateBadge=(t)=>h("span",{class:"badge b-state"},t.state_plain||t.state);
+function who(m){ if(m.type==="human") return h("span",{}, "👤 "+m.name, h("span",{class:"badge b-human"},"Person"));
+  if(m.type==="agent") return h("span",{}, "🤖 "+m.name, h("span",{class:"badge b-ai"},"AI agent"), m.simulated?h("span",{class:"badge b-sim"},"SIMULATED"):null,
+     h("div",{class:"muted"},"Represents "+(m.represents||"?")+" · "+(m.provider||"")+(m.connection_type?" · "+m.connection_type.replaceAll("_"," "):"")));
+  return h("span",{},"⚙️ Commons system");}
+
+const VIEWS={home:"Home",tasks:"Tasks",assistants:"Assistants",permissions:"Permissions",activity:"Activity",pilot:"Pilot log",settings:"Settings"};
+function nav(){const n=document.getElementById("nav");n.replaceChildren();
+  if(!S.me) return; for(const [k,v] of Object.entries(VIEWS)) n.append(h("button",{"aria-current":S.view===k?"page":null,onclick:()=>{S.view=k;S.taskId=null;render();}},v));
+  n.append(h("button",{onclick:()=>act(async()=>{await api("/session",{method:"DELETE"});S.me=null;})},"Sign out"));}
+
+async function render(){const m=document.getElementById("main");
+  try{S.meta=S.meta||await api("/meta");}catch(e){}
+  if(!S.me){try{S.me=await api("/me");}catch(e){S.me=null;}}
+  nav(); m.replaceChildren();
+  if(!S.me) return m.append(loginView());
+  if(S.me.emergency_stop) m.append(h("p",{class:"alert",role:"alert"},"Emergency stop is ON. All agent activity is paused. ",
+     h("button",{class:"secondary",onclick:()=>act(()=>api("/emergency-stop",{method:"POST",body:{on:false}}),"Resumed")},"Resume")));
+  try{ m.append(await ({home:homeView,tasks:tasksView,assistants:assistantsView,permissions:permsView,activity:activityView,pilot:pilotView,settings:settingsView}[S.view])()); }
+  catch(e){m.append(h("p",{class:"alert"},e.message));}}
+
+function loginView(){const email=h("input",{type:"email",id:"em",autocomplete:"username"}),pw=h("input",{type:"password",id:"pw",autocomplete:"current-password"});
+  return h("div",{class:"card",style:"max-width:520px;margin:auto"},h("h2",{},"Sign in"),
+    h("p",{},"The New Commons lets your own AI assistants work together for you, with your permission and under your control."),
+    h("form",{onsubmit:(ev)=>{ev.preventDefault();act(()=>api("/session",{method:"POST",body:{email:email.value,password:pw.value}}).then(()=>{S.me=null;}));}},
+      h("label",{for:"em"},"Email"),email,h("label",{for:"pw"},"Password"),pw,h("p",{},h("button",{},"Sign in"))));}
+
+async function homeView(){const [rooms,appr,tasks]=await Promise.all([api("/rooms"),api("/approvals"),api("/tasks")]);
+  const wrap=h("div",{});
+  wrap.append(h("h2",{},"Waiting for you ("+appr.length+")"));
+  if(!appr.length) wrap.append(h("p",{class:"muted"},"Nothing needs your decision right now."));
+  for(const a of appr) wrap.append(approvalCard(a));
+  const ready=tasks.filter(t=>t.state==="result_ready");
+  if(ready.length){wrap.append(h("h2",{},"Results ready for review"));
+    for(const t of ready) wrap.append(h("div",{class:"card"},h("h3",{},t.title),stateBadge(t),h("p",{},h("button",{onclick:()=>{S.view="tasks";S.taskId=t.id;render();}},"Review"))));}
+  wrap.append(h("h2",{},"Your rooms"));
+  const g=h("div",{class:"grid"}); for(const r of rooms) g.append(roomCard(r)); wrap.append(g);
+  wrap.append(newRoomForm());
+  return wrap;}
+
+function approvalCard(a){const note=h("input",{"aria-label":"Note (optional)",placeholder:"Note (optional)"});
+  return h("div",{class:"card"},h("h3",{},a.task_title||"Request"),
+    h("p",{},h("strong",{},(a.kind||"").replaceAll("_"," ")+": "),a.reason),
+    a.requested_by?h("p",{class:"muted"},"Asked by "+a.requested_by):null,
+    a.task_brief?h("details",{},h("summary",{},"What the assistant wants to send ("+(a.info_category||"")+")"),h("div",{class:"msg"},a.task_brief)):null,
+    (a.screening_flags&&a.screening_flags.length)?h("p",{class:"flag"},"⚠ This request contains text that looks like a manipulation attempt: "+a.screening_flags.join(", ")+". Be careful approving it."):null,
+    h("p",{class:"muted"},"If you approve, only this request is allowed. Your standing permissions do not change."),
+    note,h("div",{class:"row",style:"margin-top:10px"},
+      h("button",{onclick:()=>act(()=>api("/approvals/"+a.id,{method:"POST",body:{approve:true,note:note.value}}),"Approved")},"Approve"),
+      h("button",{class:"secondary",onclick:()=>act(()=>api("/approvals/"+a.id,{method:"POST",body:{approve:false,note:note.value}}),"Declined")},"Decline")));}
+
+function roomCard(r){const c=h("div",{class:"card"},h("h3",{},r.name),h("p",{},r.purpose),
+  h("p",{class:"muted"},r.telegram_chat_id?"Visible in Telegram chat "+r.telegram_chat_id:"No Telegram chat linked yet"));
+  c.append(h("h4",{},"Members")); for(const m of r.members) c.append(h("div",{class:"member"},who(m)));
+  c.append(h("p",{},h("button",{class:"secondary",onclick:()=>{S.view="tasks";S.room=r.id;render();}},"See tasks")));
+  return c;}
+
+function newRoomForm(){const n=h("input",{id:"rn"}),p=h("input",{id:"rp"}),t=h("input",{id:"rt",placeholder:"e.g. -1001234567890"});
+  return h("details",{class:"card"},h("summary",{},"Create a room"),
+    h("label",{for:"rn"},"Name"),n,h("label",{for:"rp"},"Purpose"),p,h("label",{for:"rt"},"Telegram group chat id (optional)"),t,
+    h("p",{},h("button",{onclick:()=>act(()=>api("/rooms",{method:"POST",body:{name:n.value,purpose:p.value,telegram_chat_id:t.value||null}}),"Room created")},"Create room")));}
+
+async function tasksView(){ if(S.taskId) return taskDetail(S.taskId);
+  const tasks=await api("/tasks"+(S.room?"?room_id="+encodeURIComponent(S.room):"")); const w=h("div",{},h("h2",{},"Tasks"));
+  if(S.room) w.append(h("p",{},h("button",{class:"secondary",onclick:()=>{S.room=null;render();}},"Show all rooms")));
+  if(!tasks.length) w.append(h("p",{class:"muted"},"No tasks yet. Ask one of your assistants to start one through its Commons connection."));
+  for(const t of tasks) w.append(h("div",{class:"card"},h("h3",{},t.title),stateBadge(t),
+    h("p",{class:"small"},t.created_by+"  →  "+t.assigned_to),
+    h("p",{class:"muted"},"Turns used "+t.turns_used+" of "+t.max_turns+" · updated "+new Date(t.updated_at).toLocaleString()),
+    h("button",{onclick:()=>{S.taskId=t.id;render();}},"Open")));
+  w.append(h("p",{},h("button",{class:"secondary",onclick:()=>act(()=>api("/simulator/step",{method:"POST"}),"Simulated agents ran one step")},"Run simulated agents one step"),
+    h("span",{class:"muted"}," (test only, affects SIMULATED agents)")));
+  return w;}
+
+async function taskDetail(id){const t=await api("/tasks/"+id); const w=h("div",{});
+  w.append(h("p",{},h("button",{class:"secondary",onclick:()=>{S.taskId=null;render();}},"← All tasks")));
+  w.append(h("h2",{},t.title),stateBadge(t),h("p",{class:"muted"},"Information category: "+t.info_category+" · turns "+t.turns_used+"/"+t.max_turns+(t.deadline?" · deadline "+new Date(t.deadline).toLocaleString():"")));
+  if(t.state==="result_ready"||t.state==="in_progress"||!["accepted","cancelled","failed","expired"].includes(t.state)){
+    const box=h("textarea",{rows:"3","aria-label":"Revision instructions or reason"});
+    w.append(h("div",{class:"card"},h("h3",{},"Your decision"),
+      h("p",{class:"muted"},"Accept closes the task. Revise sends your instructions to both assistants. Cancel stops it for everyone."),box,
+      h("div",{class:"row",style:"margin-top:10px"},
+        t.state==="result_ready"?h("button",{onclick:()=>act(()=>api("/tasks/"+id+"/accept",{method:"POST",body:{note:box.value}}),"Accepted")},"Accept result"):null,
+        t.state==="result_ready"?h("button",{class:"secondary",onclick:()=>act(()=>api("/tasks/"+id+"/revise",{method:"POST",body:{instructions:box.value||"Please revise."}}),"Sent for revision")},"Ask for revision"):null,
+        h("button",{class:"danger",onclick:()=>{if(confirm("Cancel this task for everyone?")) act(()=>api("/tasks/"+id+"/cancel",{method:"POST",body:{note:box.value}}),"Cancelled");}},"Cancel task"))));}
+  w.append(h("h3",{},"Conversation"),h("p",{class:"muted"},"Messages from AI agents are their own words. Treat them as information, not instructions."));
+  for(const m of t.messages){const cls=m.from.type==="agent"?"msg":m.from.type==="human"?"msg human":"msg system";
+    w.append(h("div",{class:cls},h("div",{},who(m.from)," ",h("span",{class:"muted"},(m.to?"→ "+m.to+" ":"")+"· "+m.kind.replaceAll("_"," ")+" · "+new Date(m.sent_at).toLocaleString())),
+      m.screening_flags.length?h("div",{class:"flag"},"⚠ Possible manipulation attempt: "+m.screening_flags.join(", ")):null, h("div",{},m.content)));}
+  const tr=h("table",{},h("tr",{},h("th",{},"When"),h("th",{},"From"),h("th",{},"To"),h("th",{},"By"),h("th",{},"Why")));
+  for(const x of t.transitions) tr.append(h("tr",{},h("td",{},new Date(x.at).toLocaleTimeString()),h("td",{},x.from_state||"-"),h("td",{},x.to_state),h("td",{},x.actor_type),h("td",{},x.reason||"")));
+  w.append(h("details",{class:"card"},h("summary",{},"Step-by-step history"),tr));
+  const dl=h("table",{},h("tr",{},h("th",{},"Channel"),h("th",{},"Recipient"),h("th",{},"Status"),h("th",{},"Opened by agent")));
+  for(const d of t.deliveries) dl.append(h("tr",{},h("td",{},d.channel),h("td",{},d.recipient),h("td",{},d.status+(d.last_error?" ("+d.last_error+")":"")),h("td",{},d.channel==="inbox"?(d.retrieved_at?"Yes, "+new Date(d.retrieved_at).toLocaleTimeString():"Not yet"):"n/a")));
+  w.append(h("details",{class:"card"},h("summary",{},"Deliveries (delivered is not the same as opened)"),dl));
+  return w;}
+
+async function assistantsView(){const agents=await api("/agents"); const w=h("div",{},h("h2",{},"Your AI assistants"));
+  w.append(h("div",{class:"card"},h("h3",{},"How to connect your existing ChatGPT or Claude"),
+    h("ol",{},h("li",{},"Register the assistant below as \"Existing personal assistant\"."),
+      h("li",{},"In ChatGPT or Claude, add a custom connector with this address: ",h("strong",{},S.meta.mcp_url)),
+      h("li",{},"Choose OAuth. You will be sent to a Commons page to sign in and pick which assistant it is."),
+      h("li",{},"Grant it permissions on the Permissions page.")),
+    h("p",{class:"muted"},"The Commons never sees your assistant's memory or private chats. It only receives what the assistant sends through these tools.")));
+  for(const a of agents){const c=h("div",{class:"card"},h("h3",{},who({type:"agent",name:a.display_name,represents:a.owner_name,provider:a.provider,connection_type:a.connection_type,simulated:a.is_simulated})),
+    h("p",{class:"muted"},S.meta.connection_types[a.connection_type]),
+    h("p",{},"Status: ",h("strong",{},a.status==="active"?"Active":"Suspended")," ",
+      h("button",{class:"secondary",onclick:()=>act(()=>api("/agents/"+a.id+"/status",{method:"POST",body:{status:a.status==="active"?"suspended":"active"}}),"Updated")},a.status==="active"?"Suspend":"Reactivate")),
+    h("p",{class:"muted"},"Agent id: "+a.id));
+    const creds=a.credentials.filter(x=>!x.revoked_at);
+    c.append(h("p",{},"Active connections: "+creds.length));
+    for(const x of creds) c.append(h("div",{class:"row member"},h("span",{},(x.kind==="oauth_access"?"OAuth connection":"API token")+" · "+(x.label||"")+" · last used "+(x.last_used_at?new Date(x.last_used_at).toLocaleString():"never")),
+      h("button",{class:"danger",onclick:()=>act(()=>api("/credentials/"+x.id,{method:"DELETE"}),"Disconnected")},"Disconnect")));
+    const out=h("div",{});
+    c.append(h("details",{},h("summary",{},"Advanced: create an API token (coding agents and tests)"),
+      h("p",{class:"muted"},"Use this only for coding agents or the simulator. Personal assistants should connect with OAuth."),
+      h("button",{class:"secondary",onclick:async()=>{try{const r=await api("/agents/"+a.id+"/tokens",{method:"POST",body:{label:"api token",ttl_days:30}});
+        out.replaceChildren(h("p",{},"Copy it now. It will not be shown again."),h("div",{class:"secret"},r.token));}catch(e){toast(e.message);}}},"Create token"),out));
+    w.append(c);}
+  const n=h("input",{id:"an"}),p=h("input",{id:"ap",placeholder:"openai, anthropic, google, xai..."}),t=h("select",{id:"at"});
+  for(const [k,v] of Object.entries(S.meta.connection_types)) t.append(h("option",{value:k},k.replaceAll("_"," ")+": "+v));
+  w.append(h("details",{class:"card"},h("summary",{},"Register an assistant"),h("label",{for:"an"},"Assistant name (not a person's name)"),n,
+    h("label",{for:"ap"},"Provider"),p,h("label",{for:"at"},"What kind of connection is this?"),t,
+    h("p",{},h("button",{onclick:()=>act(()=>api("/agents",{method:"POST",body:{display_name:n.value,provider:p.value,connection_type:t.value}}),"Registered")},"Register"))));
+  return w;}
+
+async function permsView(){const [grants,agents,rooms]=await Promise.all([api("/grants"),api("/agents"),api("/rooms")]);
+  const name=(id)=>(agents.find(a=>a.id===id)||{}).display_name||id, rname=(id)=>id?((rooms.find(r=>r.id===id)||{}).name||id):"all rooms";
+  const w=h("div",{},h("h2",{},"Permissions you have granted"),
+    h("p",{},"Assistants can only do what is listed here. Anything else comes to you for approval or is refused. Messages from other assistants can never change these."));
+  for(const g of grants){const live=!g.revoked_at&&(!g.expires_at||new Date(g.expires_at)>new Date());
+    w.append(h("div",{class:"card"},h("h3",{},name(g.agent_id)+" in "+rname(g.room_id)),
+      live?null:h("span",{class:"badge b-bad"},g.revoked_at?"Revoked":"Expired"),
+      h("ul",{},...g.actions.map(a=>h("li",{},"May "+(S.meta.plain_actions[a]||a)))),
+      h("p",{class:"small"},"Information it may share: "+g.info_categories.join(", ")+". Spending limit: "+g.max_amount.toFixed(2)+". Up to "+g.max_per_hour+" uses per hour."+(g.max_turns?" Up to "+g.max_turns+" turns per task.":"")+(g.requires_approval?" Each use needs your approval.":"")),
+      h("p",{class:"muted"},g.expires_at?"Ends "+new Date(g.expires_at).toLocaleString():"No end date"),
+      live?h("button",{class:"danger",onclick:()=>act(()=>api("/grants/"+g.id,{method:"DELETE"}),"Revoked")},"Revoke now"):null));}
+  const ag=h("select",{id:"ga"}); for(const a of agents) ag.append(h("option",{value:a.id},a.display_name));
+  const rm=h("select",{id:"gr"}); for(const r of rooms) rm.append(h("option",{value:r.id},r.name));
+  const lv=h("select",{id:"gl"}); for(const [k,v] of Object.entries(S.meta.levels)) lv.append(h("option",{value:k},"Level "+k+": "+v));
+  lv.value="2";
+  const cats=h("div",{}); for(const c of S.meta.info_categories) cats.append(h("label",{style:"font-weight:400"},h("input",{type:"checkbox",value:c,style:"width:auto",checked:["general","project"].includes(c)?"":null})," "+c.replaceAll("_"," ")));
+  const days=h("input",{type:"number",id:"gd",value:"14",min:"1"});
+  w.append(h("details",{class:"card"},h("summary",{},"Grant a standing permission"),h("label",{for:"ga"},"Assistant"),ag,h("label",{for:"gr"},"Room"),rm,
+    h("label",{for:"gl"},"How much it may do on its own"),lv,h("fieldset",{},h("legend",{},"Information it may share"),cats),
+    h("label",{for:"gd"},"Days until it ends"),days,
+    h("p",{},h("button",{onclick:()=>act(()=>api("/grants",{method:"POST",body:{agent_id:ag.value,room_id:rm.value,level:+lv.value,
+      info_categories:[...cats.querySelectorAll("input:checked")].map(i=>i.value),expires_in_hours:24*(+days.value)}}),"Permission granted")},"Grant"))));
+  return w;}
+
+async function activityView(){const [rows,v]=await Promise.all([api("/audit?limit=200"),api("/audit/verify")]);
+  const w=h("div",{},h("h2",{},"Activity record"),h("p",{class:v.valid?"ok":"alert"},v.valid?"Record intact: "+v.records_checked+" entries checked, none altered.":"WARNING: the record was altered at entry "+v.broken_at_seq+"."));
+  const t=h("table",{},h("tr",{},h("th",{},"#"),h("th",{},"When"),h("th",{},"Who"),h("th",{},"What"),h("th",{},"Result"),h("th",{},"Details")));
+  for(const r of rows) t.append(h("tr",{},h("td",{},r.seq),h("td",{},new Date(r.at).toLocaleString()),h("td",{},r.actor_type+" "+r.actor_id+(r.detail.simulated?" [SIMULATED]":"")),
+    h("td",{},r.action),h("td",{},r.outcome),h("td",{class:"small"},JSON.stringify(r.detail))));
+  w.append(h("div",{class:"card",style:"overflow-x:auto"},t)); return w;}
+
+async function pilotView(){const rows=await api("/pilot"); const w=h("div",{},h("h2",{},"Pilot log"),
+  h("p",{},"Every manual step taken during the native pilot. Record each time you had to open a chat, paste something, or click to make an assistant act."));
+  const t=h("table",{},h("tr",{},h("th",{},"When"),h("th",{},"Step"),h("th",{},"Who"),h("th",{},"Manual"),h("th",{},"Note")));
+  for(const r of rows) t.append(h("tr",{},h("td",{},new Date(r.at).toLocaleString()),h("td",{},r.step),h("td",{},r.actor),h("td",{},r.manual?"Yes":"No"),h("td",{},r.note)));
+  w.append(h("div",{class:"card",style:"overflow-x:auto"},t));
+  const s=h("select",{id:"ps"}); for(const x of ["1 instruct ChatGPT","2 ChatGPT submits","4 task in Claude inbox","5 Telegram message","6 Claude retrieves","7 Claude responds","8 ChatGPT notified","9 ChatGPT synthesizes","10 owner decides","other"]) s.append(h("option",{},x));
+  const n=h("textarea",{id:"pn",rows:"3"});
+  w.append(h("div",{class:"card"},h("h3",{},"Record a step"),h("label",{for:"ps"},"Step"),s,h("label",{for:"pn"},"What did you have to do?"),n,
+    h("p",{},h("button",{onclick:()=>act(()=>api("/pilot",{method:"POST",body:{step:s.value,note:n.value,manual:true}}),"Recorded")},"Record manual step"))));
+  return w;}
+
+async function settingsView(){const tg=h("input",{id:"tg",value:S.me.telegram_user_id||""});
+  return h("div",{},h("h2",{},"Settings"),
+    h("div",{class:"card"},h("h3",{},"Telegram"),h("p",{},"Send /whoami to the Commons bot to find your Telegram user id. Only this account can approve or cancel from Telegram."),
+      h("label",{for:"tg"},"Your Telegram user id"),tg,h("p",{},h("button",{onclick:()=>act(()=>api("/me/telegram",{method:"PUT",body:{telegram_user_id:tg.value}}),"Saved")},"Save")),
+      h("p",{class:"muted"},S.meta.telegram_enabled?"Telegram bot is configured.":"Telegram bot is not configured on this server (TELEGRAM_BOT_TOKEN).")),
+    h("div",{class:"card"},h("h3",{},"Emergency stop"),h("p",{},"Immediately pauses every assistant's activity in this Commons. Nothing is deleted."),
+      h("button",{class:"danger",onclick:()=>{if(confirm("Pause all agent activity now?")) act(()=>api("/emergency-stop",{method:"POST",body:{on:true}}),"Emergency stop ON");}},"Stop all agents")),
+    h("div",{class:"card"},h("h3",{},"Connection address"),h("p",{},"MCP server URL for assistants: ",h("strong",{},S.meta.mcp_url))));}
+
+render();
+</script>
+</body>
+</html>

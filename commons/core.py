@@ -64,6 +64,8 @@ class Core:
                           telegram_user_id=telegram_user_id)
 
     def login(self, email: str, password: str) -> str:
+        # Throttle guessing: 10 attempts per 15 minutes per email address.
+        self.safety.hit(f"login:{email.lower()}", "login", 10, 900)
         h = self.db.one("SELECT * FROM humans WHERE email=?", (email.lower(),))
         if not h or not verify_password(password, h["password_hash"]):
             self.audit.record(SYSTEM, "human.login", outcome="denied", email=email.lower())
@@ -813,6 +815,9 @@ class Core:
             if r["task_id"]:
                 t = self._task_row(r["task_id"])
                 r["task_title"] = t["title"]
+                r["task_brief"] = t["brief"]
+                r["info_category"] = t["info_category"]
+                r["screening_flags"] = screen_content(t["title"] + "\n" + t["brief"])
             if r["requested_by_agent"]:
                 r["requested_by"] = self.get_agent(r["requested_by_agent"])["label"]
         return rows
@@ -987,6 +992,7 @@ class Core:
             sender = {"type": "system", "id": SYSTEM.id, "name": "Commons Core"}
         out = {"message_id": r["id"], "task_id": r["task_id"], "room_id": r["room_id"], "kind": r["kind"],
                "from": sender, "sent_at": r["created_at"], "content": r["body"],
+               "to": self.get_agent(r["recipient_agent_id"])["display_name"] if r["recipient_agent_id"] else None,
                "screening_flags": jload(r["injection_flags"], [])}
         if r["task_id"] and r["kind"] == "task_request":
             t = self._task_row(r["task_id"])
