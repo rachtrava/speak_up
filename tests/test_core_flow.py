@@ -155,3 +155,34 @@ def test_simulator_is_labeled_and_audited_as_simulated(env):
     assert "[SIMULATED]" in e.core.get_agent(sa["id"])["label"]
     rows = e.core.audit.list(500)
     assert any(r["actor_id"] == sb["id"] and r["detail"].get("simulated") is True for r in rows)
+
+
+def test_simulator_start_requires_two_simulated_members(env):
+    from commons.errors import CommonsError
+    e = env
+    sim = Simulator(e.core)
+    with pytest.raises(CommonsError):
+        sim.start_test_task(e.owner, e.room["id"])
+    for n in ("Sim A", "Sim B"):
+        a = e.core.create_agent(e.owner, n, "simulator", "simulated")
+        e.core.add_member(e.owner, e.room["id"], "agent", a["id"])
+    t = sim.start_test_task(e.owner, e.room["id"])
+    assert t["state"] == "awaiting_authorization"   # no grants yet: owner must approve
+
+
+def test_simulator_explains_missing_permission(env):
+    e = env
+    sim = Simulator(e.core)
+    ids = []
+    for n in ("Sim A", "Sim B"):
+        a = e.core.create_agent(e.owner, n, "simulator", "simulated")
+        e.core.add_member(e.owner, e.room["id"], "agent", a["id"])
+        ids.append(a["id"])
+    t = sim.start_test_task(e.owner, e.room["id"])
+    e.core.decide_approval(e.owner, e.core.approvals_for_owner(e.owner)[0]["id"], True)
+    report = sim.step_all(e.owner)["actions"]
+    assert any("no permission to read" in a.get("error", "") for a in report)
+    for aid in ids:
+        e.core.create_grant(e.owner, aid, e.room["id"], level=2, info_categories=["general", "project"])
+    sim.step_all(e.owner); sim.step_all(e.owner)
+    assert e.core._task_row(t["id"])["state"] == "result_ready"

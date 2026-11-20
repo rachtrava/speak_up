@@ -314,6 +314,12 @@ def build_api(core: Core, settings, simulator=None, dispatcher=None) -> FastAPI:
     def pilot_add(body: PilotIn, h: Principal = Depends(human)):
         return core.pilot_record(h, body.step, body.note, body.manual, body.evidence)
 
+    @api.post("/simulator/start")
+    def sim_start(body: dict = Body(...), h: Principal = Depends(human)):
+        if simulator is None:
+            raise CommonsError("Simulator is not enabled.")
+        return simulator.start_test_task(h, str(body.get("room_id", "")))
+
     @api.post("/simulator/step")
     def sim_step(h: Principal = Depends(human)):
         if simulator is None:

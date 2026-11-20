@@ -48,6 +48,20 @@ class Simulator:
         return Principal("agent", agent["id"], agent["owner_id"], agent["display_name"], True,
                          None, "simulator", None)
 
+    def start_test_task(self, owner: Principal, room_id: str) -> dict:
+        """Have one SIMULATED agent in the room ask another for a sample review."""
+        import time
+        room = self.core._owned_room(owner, room_id)
+        sims = [m for m in room["members"] if m["type"] == "agent" and m["simulated"] and m["status"] == "active"]
+        if len(sims) < 2:
+            raise CommonsError("Add at least two SIMULATED assistants to this room first "
+                               "(register them on the Assistants page with connection type 'simulated').")
+        requester = self.principal(self.core.get_agent(sims[0]["id"]))
+        brief = ("Sample brief: launch a bilingual newsletter for adults over forty. "
+                 "Budget is small and the deadline is in six weeks. What is missing?")
+        return self.core.submit_task(requester, room_id, sims[1]["id"], "Simulated test: critique a sample brief",
+                                     brief, info_category="project", idempotency_key=f"sim-start-{time.time_ns()}")
+
     def step_all(self, owner: Principal) -> dict:
         report = []
         agents = self.core.db.all("SELECT * FROM agents WHERE owner_id=? AND is_simulated=1 AND status='active'",
@@ -62,6 +76,10 @@ class Simulator:
             inbox = self.core.read_inbox(p, limit=20)
         except CommonsError as e:
             return [{"agent": p.display_name, "error": e.message}]
+        if inbox["withheld_due_to_permissions"]:
+            out.append({"agent": p.display_name,
+                        "error": f"has {inbox['withheld_due_to_permissions']} item(s) waiting but no permission to read "
+                                 "its inbox in that room. Grant it permissions on the Permissions page."})
         for item in inbox["items"]:
             tid = item["task_id"]
             if not tid:

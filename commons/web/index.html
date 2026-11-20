@@ -89,7 +89,7 @@ function loginView(){const email=h("input",{type:"email",id:"em",autocomplete:"u
     h("form",{onsubmit:(ev)=>{ev.preventDefault();act(()=>api("/session",{method:"POST",body:{email:email.value,password:pw.value}}).then(()=>{S.me=null;}));}},
       h("label",{for:"em"},"Email"),email,h("label",{for:"pw"},"Password"),pw,h("p",{},h("button",{},"Sign in"))));}
 
-async function homeView(){const [rooms,appr,tasks]=await Promise.all([api("/rooms"),api("/approvals"),api("/tasks")]);
+async function homeView(){const [rooms,appr,tasks,agents]=await Promise.all([api("/rooms"),api("/approvals"),api("/tasks"),api("/agents")]);
   const wrap=h("div",{});
   wrap.append(h("h2",{},"Waiting for you ("+appr.length+")"));
   if(!appr.length) wrap.append(h("p",{class:"muted"},"Nothing needs your decision right now."));
@@ -98,7 +98,7 @@ async function homeView(){const [rooms,appr,tasks]=await Promise.all([api("/room
   if(ready.length){wrap.append(h("h2",{},"Results ready for review"));
     for(const t of ready) wrap.append(h("div",{class:"card"},h("h3",{},t.title),stateBadge(t),h("p",{},h("button",{onclick:()=>{S.view="tasks";S.taskId=t.id;render();}},"Review"))));}
   wrap.append(h("h2",{},"Your rooms"));
-  const g=h("div",{class:"grid"}); for(const r of rooms) g.append(roomCard(r)); wrap.append(g);
+  const g=h("div",{class:"grid"}); for(const r of rooms) g.append(roomCard(r,agents)); wrap.append(g);
   wrap.append(newRoomForm());
   return wrap;}
 
@@ -113,9 +113,15 @@ function approvalCard(a){const note=h("input",{"aria-label":"Note (optional)",pl
       h("button",{onclick:()=>act(()=>api("/approvals/"+a.id,{method:"POST",body:{approve:true,note:note.value}}),"Approved")},"Approve"),
       h("button",{class:"secondary",onclick:()=>act(()=>api("/approvals/"+a.id,{method:"POST",body:{approve:false,note:note.value}}),"Declined")},"Decline")));}
 
-function roomCard(r){const c=h("div",{class:"card"},h("h3",{},r.name),h("p",{},r.purpose),
+function roomCard(r,agents){const c=h("div",{class:"card"},h("h3",{},r.name),h("p",{},r.purpose),
   h("p",{class:"muted"},r.telegram_chat_id?"Visible in Telegram chat "+r.telegram_chat_id:"No Telegram chat linked yet"));
-  c.append(h("h4",{},"Members")); for(const m of r.members) c.append(h("div",{class:"member"},who(m)));
+  c.append(h("h4",{},"Members")); for(const m of r.members) c.append(h("div",{class:"member"},who(m),
+    m.type==="agent"?h("button",{class:"secondary",style:"margin-left:10px",onclick:()=>{if(confirm("Remove "+m.name+" from this room?")) act(()=>api("/rooms/"+r.id+"/members/agent/"+m.id,{method:"DELETE"}),"Removed");}},"Remove"):null));
+  const inRoom=new Set(r.members.map(m=>m.id)), avail=(agents||[]).filter(a=>!inRoom.has(a.id));
+  if(avail.length){const sel=h("select",{"aria-label":"Assistant to add to "+r.name}); for(const a of avail) sel.append(h("option",{value:a.id},a.display_name+(a.is_simulated?" [SIMULATED]":"")));
+    c.append(h("div",{class:"row",style:"margin-top:10px"},sel,h("button",{onclick:()=>act(()=>api("/rooms/"+r.id+"/members",{method:"POST",body:{member_type:"agent",member_id:sel.value}}),"Added. Grant it permissions on the Permissions page.")},"Add assistant to room")));}
+  else if(!(agents||[]).length) c.append(h("p",{class:"muted"},"No assistants registered yet. Register one on the Assistants page, then add it here."));
+  if(r.members.filter(m=>m.simulated).length>=2) c.append(h("p",{},h("button",{class:"secondary",onclick:()=>act(()=>api("/simulator/start",{method:"POST",body:{room_id:r.id}}),"Simulated test task started. Open Tasks to follow it.")},"Start a simulated test task")));
   c.append(h("p",{},h("button",{class:"secondary",onclick:()=>{S.view="tasks";S.room=r.id;render();}},"See tasks")));
   return c;}
 
@@ -132,7 +138,9 @@ async function tasksView(){ if(S.taskId) return taskDetail(S.taskId);
     h("p",{class:"small"},t.created_by+"  →  "+t.assigned_to),
     h("p",{class:"muted"},"Turns used "+t.turns_used+" of "+t.max_turns+" · updated "+new Date(t.updated_at).toLocaleString()),
     h("button",{onclick:()=>{S.taskId=t.id;render();}},"Open")));
-  w.append(h("p",{},h("button",{class:"secondary",onclick:()=>act(()=>api("/simulator/step",{method:"POST"}),"Simulated agents ran one step")},"Run simulated agents one step"),
+  w.append(h("p",{},h("button",{class:"secondary",onclick:async()=>{try{const r=await api("/simulator/step",{method:"POST"});
+      const lines=r.actions.map(a=>a.agent+(a.error?": "+a.error:" "+a.did));
+      await render(); toast(lines.length?lines.join(" | "):"Nothing for the simulated agents to do right now. If no test task exists yet, start one from the Home page.");}catch(e){toast("Could not do that: "+e.message);}}},"Run simulated agents one step"),
     h("span",{class:"muted"}," (test only, affects SIMULATED agents)")));
   return w;}
 
